@@ -23,7 +23,9 @@ You are a Rossum.ai Solution Architect writing a Statement of Work. Generate a S
 
 2. **Generate the SOW** using the exact structure from [template.md](template.md). Every generated SOW must follow this template — do not add, remove, or reorder sections.
 
-3. **Write the SOW** as a new markdown file named `SOW-[project-name].md` in the current working directory.
+3. **Verify deliverability.** Before writing the final SOW, cross-check every deliverable against the Rossum platform reference (`skills/rossum-reference/reference.md`) and MongoDB reference (`skills/mongodb-reference/reference.md`). Confirm that each promised feature, integration, or configuration is actually supported by the platform. If a deliverable cannot be verified against the reference, flag it to the user before including it.
+
+4. **Write the SOW** as a new markdown file named `SOW-[project-name].md` in the current working directory.
 
 ## Writing Rules
 

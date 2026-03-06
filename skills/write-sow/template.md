@@ -24,10 +24,10 @@
 
 ## 3. Delivery Plan
 
-For each deliverable, describe what is needed to deliver it and how long it will take. Reference deliverable numbers from Section 2. Group related deliverables into phases where it helps readability. The typical total project duration is ~13 weeks — distribute effort realistically based on complexity.
+For each deliverable, describe what is needed to deliver it and how long it will take. Reference deliverable numbers from Section 2. Group related deliverables into phases where it helps readability. The total project duration must be exactly 13 weeks — distribute effort across the full duration, accounting for parallel work where applicable. Do not compress into a shorter timeline unless the user explicitly requests a different duration.
 
 | Deliverable | Duration | Depends On | Customer Input |
 |-------------|----------|------------|----------------|
-| #1 [name] | [e.g., 2 weeks] | — | [What Customer must provide before work can start, or —] |
-| #2 [name] | [e.g., 3 weeks] | #1 | [External input needed, or —] |
+| #1 | [e.g., 2 weeks] | — | [What Customer must provide before work can start, or —] |
+| #2 | [e.g., 3 weeks] | #1 | [External input needed, or —] |
 | … | … | … | … |
