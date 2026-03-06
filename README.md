@@ -20,6 +20,10 @@ Documents a locally downloaded Rossum implementation, explaining both what is co
 
 A comprehensive Rossum.ai platform reference (API, TxScript, Aurora AI, Master Data Hub, extensions, etc.) that Claude loads automatically when relevant. Not invocable as a slash command.
 
+### MongoDB Reference (auto-loaded)
+
+A MongoDB query language reference tailored for Rossum.ai Master Data Hub. Covers find queries, aggregation pipelines, Atlas Search, operators, and practical matching patterns for data matching configurations. Auto-loaded when relevant.
+
 ## Installation
 
 ### Test locally
@@ -57,6 +61,9 @@ rossum-claude-plugin/
     │   └── SKILL.md
     ├── document-implementation/
     │   └── SKILL.md
+    ├── mongodb-reference/
+    │   ├── SKILL.md
+    │   └── reference.md
     ├── rossum-reference/
     │   ├── SKILL.md
     │   └── reference.md

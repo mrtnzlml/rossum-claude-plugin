@@ -1,0 +1,1059 @@
+# MongoDB Reference for Rossum Master Data Hub
+
+This reference covers the MongoDB query language as it applies to Rossum's Master Data Hub matching engine. The Master Data Hub uses MongoDB-style queries to match extracted document data against uploaded reference datasets.
+
+---
+
+## How Matching Works in Rossum
+
+The Master Data Hub executes matching queries against a MongoDB-backed dataset. Each matching configuration contains:
+
+1. **Dataset** — the reference data collection (vendors, POs, GL codes, etc.)
+2. **Queries** — one or more MongoDB queries executed sequentially; the first query that returns results wins
+3. **Mapping** — which dataset fields map to which schema fields on match
+4. **Result actions** — what happens on zero, one, or multiple matches
+5. **Default values** — fallback values when no match is found
+
+### Schema ID Placeholders
+
+In all queries, `{schema_id}` references the current value of a schema field from the annotation being processed. These are substituted at runtime before the query executes.
+
+```json
+{ "find": { "vendor_vat": "{sender_vat}" } }
+```
+
+Here `{sender_vat}` is replaced with the actual extracted VAT number before the query runs.
+
+### Pipe Modifiers
+
+Placeholders support pipe modifiers for transforming values before substitution:
+
+- `{field | re}` or `{field | regex}` — escapes regex special characters so the value can be safely used inside `$regex`
+- `{field | lower}` — lowercases the value
+- `{field | upper}` — uppercases the value
+
+Example:
+```json
+{ "find": { "name": { "$regex": "^{sender_name | re}$", "$options": "i" } } }
+```
+
+---
+
+## Query Types
+
+Rossum supports two MongoDB query types:
+
+### 1. Find Queries
+
+Simple document matching. Returns all documents that match the filter criteria.
+
+```json
+{ "find": { <filter> } }
+```
+
+### 2. Aggregate Pipelines
+
+Multi-stage document processing pipelines for complex matching logic — fuzzy search, scoring, joining collections, JavaScript transformations.
+
+```json
+{ "aggregate": [ <stage1>, <stage2>, ... ] }
+```
+
+### 3. HTTP Requests
+
+External API calls for matching against third-party systems (not MongoDB, but supported by the matching engine).
+
+```json
+{ "http": { "url": "...", "method": "POST", "headers": {...}, "body": {...}, "result_path": "..." } }
+```
+
+---
+
+## Find Query Operators
+
+### Comparison Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `$eq` | Equal to (implicit when using `{ field: value }`) | `{ "status": { "$eq": "active" } }` |
+| `$ne` | Not equal to | `{ "status": { "$ne": "inactive" } }` |
+| `$gt` | Greater than | `{ "amount": { "$gt": 1000 } }` |
+| `$gte` | Greater than or equal to | `{ "amount": { "$gte": 1000 } }` |
+| `$lt` | Less than | `{ "amount": { "$lt": 5000 } }` |
+| `$lte` | Less than or equal to | `{ "amount": { "$lte": 5000 } }` |
+| `$in` | Matches any value in array | `{ "country": { "$in": ["CZ", "SK", "DE"] } }` |
+| `$nin` | Matches none of the values in array | `{ "country": { "$nin": ["US", "UK"] } }` |
+
+### Logical Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `$and` | All conditions must match (implicit for multiple fields) | `{ "$and": [ { "a": 1 }, { "b": 2 } ] }` |
+| `$or` | At least one condition must match | `{ "$or": [ { "vat": "{sender_vat}" }, { "tax_id": "{sender_vat}" } ] }` |
+| `$not` | Inverts the effect of a query expression | `{ "status": { "$not": { "$eq": "deleted" } } }` |
+| `$nor` | None of the conditions must match | `{ "$nor": [ { "status": "deleted" }, { "status": "archived" } ] }` |
+
+### Element Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `$exists` | Field exists (or not) in document | `{ "email": { "$exists": true } }` |
+| `$type` | Field is of specified BSON type | `{ "zip": { "$type": "string" } }` |
+
+### Evaluation Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `$regex` | Regular expression match | `{ "name": { "$regex": "pattern", "$options": "i" } }` |
+| `$expr` | Use aggregation expressions in find | `{ "$expr": { "$gt": ["$amount", "$threshold"] } }` |
+| `$mod` | Modulo operation | `{ "qty": { "$mod": [4, 0] } }` |
+| `$text` | Full-text search (requires text index) | `{ "$text": { "$search": "rossum" } }` |
+| `$where` | JavaScript expression (slow, avoid) | `{ "$where": "this.a > this.b" }` |
+
+### Array Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `$all` | Array contains all specified elements | `{ "tags": { "$all": ["invoice", "verified"] } }` |
+| `$elemMatch` | Array element matches all conditions | `{ "items": { "$elemMatch": { "qty": { "$gt": 5 } } } }` |
+| `$size` | Array has exact number of elements | `{ "items": { "$size": 3 } }` |
+
+---
+
+## Regex Patterns
+
+Regex is critical for flexible matching in the Master Data Hub. The `$regex` operator supports Perl-compatible regular expressions (PCRE).
+
+### Syntax
+
+```json
+{ "field": { "$regex": "pattern", "$options": "flags" } }
+```
+
+### Flags (`$options`)
+
+| Flag | Description |
+|------|-------------|
+| `i` | Case-insensitive matching |
+| `m` | Multiline — `^` and `$` match line boundaries |
+| `s` | Dot (`.`) matches newline characters |
+| `x` | Extended — ignores whitespace and allows comments |
+
+### Common Patterns for Rossum
+
+**Exact match, case-insensitive:**
+```json
+{ "find": { "vendor_name": { "$regex": "^{sender_name | re}$", "$options": "i" } } }
+```
+
+**Substring match (contains):**
+```json
+{ "find": { "description": { "$regex": "{item_description | re}", "$options": "i" } } }
+```
+
+**Starts with:**
+```json
+{ "find": { "code": { "$regex": "^{item_code | re}", "$options": "i" } } }
+```
+
+**Match with optional whitespace/punctuation:**
+```json
+{ "find": { "vat_number": { "$regex": "^\\s*{sender_vat | re}\\s*$" } } }
+```
+
+**Match either of two fields in the dataset:**
+```json
+{
+  "find": {
+    "$or": [
+      { "vat_number": { "$regex": "^{sender_vat | re}$", "$options": "i" } },
+      { "tax_id": { "$regex": "^{sender_vat | re}$", "$options": "i" } }
+    ]
+  }
+}
+```
+
+> **Important**: Always use the `| re` (or `| regex`) pipe modifier when inserting schema values into `$regex` patterns. This escapes special regex characters (`.`, `*`, `+`, `(`, `)`, etc.) in the extracted value to prevent query errors or unintended matches.
+
+---
+
+## Aggregation Pipeline
+
+Aggregation pipelines process documents through a sequence of stages. Each stage transforms the documents as they pass through.
+
+```json
+{ "aggregate": [ <stage1>, <stage2>, <stage3>, ... ] }
+```
+
+### Pipeline Stages
+
+#### Filtering & Matching
+
+| Stage | Description |
+|-------|-------------|
+| `$match` | Filter documents (same syntax as find queries). Place early for performance. |
+| `$limit` | Restrict output to first N documents. |
+| `$skip` | Skip first N documents. |
+| `$sample` | Randomly select N documents. |
+
+#### Reshaping
+
+| Stage | Description |
+|-------|-------------|
+| `$project` | Include, exclude, rename fields, or compute new fields. |
+| `$addFields` / `$set` | Add new fields or overwrite existing ones (keeping all other fields). |
+| `$unset` | Remove specified fields. |
+| `$replaceRoot` / `$replaceWith` | Replace the document with a specified embedded document or expression. |
+
+#### Grouping & Sorting
+
+| Stage | Description |
+|-------|-------------|
+| `$group` | Group documents by key and apply accumulators (`$sum`, `$avg`, `$first`, `$last`, `$push`, `$addToSet`, `$min`, `$max`, `$count`). |
+| `$sort` | Sort documents. `1` ascending, `-1` descending. |
+| `$sortByCount` | Group by value and sort by count descending. |
+| `$count` | Count documents and output as a named field. |
+
+#### Joining & Combining
+
+| Stage | Description |
+|-------|-------------|
+| `$lookup` | Left outer join with another collection. |
+| `$unionWith` | Combine results from multiple collections (union). |
+| `$graphLookup` | Recursive lookup for tree/graph structures. |
+
+#### Array Processing
+
+| Stage | Description |
+|-------|-------------|
+| `$unwind` | Deconstruct an array field into one document per element. |
+
+#### Windowing
+
+| Stage | Description |
+|-------|-------------|
+| `$setWindowFields` | Apply window functions (running totals, ranks, moving averages) across a partition. |
+
+#### Branching
+
+| Stage | Description |
+|-------|-------------|
+| `$facet` | Run multiple sub-pipelines in parallel on the same input documents. |
+| `$bucket` | Group documents into buckets by value ranges. |
+| `$bucketAuto` | Automatically determine bucket boundaries. |
+
+#### Output
+
+| Stage | Description |
+|-------|-------------|
+| `$out` | Write results to a collection (replaces if exists). |
+| `$merge` | Write results to a collection with merge/update options. |
+
+---
+
+### Expression Operators (used within pipeline stages)
+
+#### Arithmetic
+
+| Operator | Description |
+|----------|-------------|
+| `$add` | Add numbers or add to date |
+| `$subtract` | Subtract numbers or subtract from date |
+| `$multiply` | Multiply numbers |
+| `$divide` | Divide numbers |
+| `$mod` | Modulo |
+| `$abs` | Absolute value |
+| `$ceil` | Ceiling (round up) |
+| `$floor` | Floor (round down) |
+| `$round` | Round to specified decimal places |
+| `$sqrt` | Square root |
+| `$pow` | Raise to power |
+| `$log` | Logarithm |
+| `$log10` | Base-10 logarithm |
+| `$ln` | Natural logarithm |
+| `$exp` | Euler's number raised to power |
+| `$trunc` | Truncate to integer |
+
+#### String
+
+| Operator | Description |
+|----------|-------------|
+| `$concat` | Concatenate strings |
+| `$substr` / `$substrBytes` / `$substrCP` | Substring extraction |
+| `$toLower` | Convert to lowercase |
+| `$toUpper` | Convert to uppercase |
+| `$trim` / `$ltrim` / `$rtrim` | Trim whitespace or characters |
+| `$split` | Split string into array |
+| `$strLenBytes` / `$strLenCP` | String length |
+| `$indexOfBytes` / `$indexOfCP` | Find substring position |
+| `$regexFind` / `$regexFindAll` / `$regexMatch` | Regex operations in expressions |
+| `$replaceOne` / `$replaceAll` | String replacement |
+| `$toString` | Convert to string |
+
+#### Array
+
+| Operator | Description |
+|----------|-------------|
+| `$arrayElemAt` | Element at index |
+| `$arrayToObject` | Convert array of key-value pairs to object |
+| `$concatArrays` | Concatenate arrays |
+| `$filter` | Filter array elements by condition |
+| `$first` / `$last` | First/last element |
+| `$in` | Check if value is in array |
+| `$indexOfArray` | Find element position |
+| `$isArray` | Check if value is array |
+| `$map` | Transform each array element |
+| `$objectToArray` | Convert object to array of key-value pairs |
+| `$range` | Generate integer array |
+| `$reduce` | Reduce array to single value |
+| `$reverseArray` | Reverse array |
+| `$size` | Array length |
+| `$slice` | Subset of array |
+| `$zip` | Merge arrays element-wise |
+
+#### Date
+
+| Operator | Description |
+|----------|-------------|
+| `$dateFromString` | Parse date string |
+| `$dateToString` | Format date as string |
+| `$dateFromParts` | Construct date from parts |
+| `$dateToParts` | Decompose date to parts |
+| `$year` / `$month` / `$dayOfMonth` | Extract date components |
+| `$hour` / `$minute` / `$second` / `$millisecond` | Extract time components |
+| `$dayOfWeek` / `$dayOfYear` | Day positions |
+| `$isoWeek` / `$isoWeekYear` / `$isoDayOfWeek` | ISO date components |
+| `$dateAdd` / `$dateSubtract` / `$dateDiff` | Date arithmetic |
+| `$toDate` | Convert to date |
+
+#### Comparison (in expressions)
+
+| Operator | Description |
+|----------|-------------|
+| `$cmp` | Compare two values (-1, 0, 1) |
+| `$eq` / `$ne` | Equal / not equal |
+| `$gt` / `$gte` | Greater than / greater than or equal |
+| `$lt` / `$lte` | Less than / less than or equal |
+
+#### Conditional
+
+| Operator | Description |
+|----------|-------------|
+| `$cond` | If-then-else: `{ "$cond": { "if": expr, "then": val1, "else": val2 } }` |
+| `$ifNull` | Return first non-null value: `{ "$ifNull": [expr, fallback] }` |
+| `$switch` | Multi-branch conditional (like switch/case) |
+
+#### Type
+
+| Operator | Description |
+|----------|-------------|
+| `$type` | Return BSON type string |
+| `$convert` | Convert between types with error handling |
+| `$toBool` / `$toInt` / `$toLong` / `$toDouble` / `$toDecimal` / `$toString` / `$toDate` / `$toObjectId` | Type conversion shortcuts |
+| `$isNumber` | Check if value is numeric |
+
+#### Set (for array-as-set operations)
+
+| Operator | Description |
+|----------|-------------|
+| `$setEquals` | Sets are equal |
+| `$setIntersection` | Common elements |
+| `$setUnion` | All elements from all sets |
+| `$setDifference` | Elements in first set not in second |
+| `$setIsSubset` | First set is subset of second |
+| `$anyElementTrue` / `$allElementsTrue` | Boolean checks on array |
+
+#### Object
+
+| Operator | Description |
+|----------|-------------|
+| `$mergeObjects` | Merge multiple objects into one |
+| `$getField` | Get field value by name (supports names with dots/dollars) |
+| `$setField` | Set field value by name |
+
+#### Accumulators (used in `$group` and `$setWindowFields`)
+
+| Operator | Description |
+|----------|-------------|
+| `$sum` | Sum of values |
+| `$avg` | Average |
+| `$min` / `$max` | Minimum / maximum |
+| `$first` / `$last` | First / last value in group |
+| `$push` | Collect all values into array |
+| `$addToSet` | Collect unique values into array |
+| `$count` | Count of documents |
+| `$stdDevPop` / `$stdDevSamp` | Standard deviation |
+
+#### Special
+
+| Operator | Description |
+|----------|-------------|
+| `$meta` | Access metadata (e.g., text search score, Atlas Search score) |
+| `$literal` | Return a value without parsing (escape `$` prefixed strings) |
+| `$rand` | Random float between 0 and 1 |
+| `$function` | Custom JavaScript function |
+
+---
+
+## `$function` — Custom JavaScript
+
+The `$function` operator runs custom JavaScript within an aggregation pipeline. Useful for complex string normalization or business logic that MongoDB operators cannot express.
+
+### Syntax
+
+```json
+{
+  "$function": {
+    "body": "function(arg1, arg2) { return result; }",
+    "args": ["$fieldName", "literal_value"],
+    "lang": "js"
+  }
+}
+```
+
+### Rossum Example — Normalize Vendor Name
+
+```json
+{
+  "aggregate": [
+    {
+      "$addFields": {
+        "__normalized_name": {
+          "$function": {
+            "body": "function(name) { return name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase(); }",
+            "args": ["$Vendor Name"],
+            "lang": "js"
+          }
+        }
+      }
+    },
+    {
+      "$match": {
+        "__normalized_name": {
+          "$regex": "^{sender_name | re}$",
+          "$options": "i"
+        }
+      }
+    }
+  ]
+}
+```
+
+> **Performance note**: JavaScript functions are slower than native MongoDB operators. Prefer native operators when possible. Use `$function` only for logic that cannot be expressed with built-in operators (e.g., complex string sanitization).
+
+---
+
+## `$lookup` — Cross-Collection Joins
+
+Join documents from another dataset/collection.
+
+### Basic Syntax
+
+```json
+{
+  "$lookup": {
+    "from": "other_collection",
+    "localField": "field_in_current",
+    "foreignField": "field_in_other",
+    "as": "joined_results"
+  }
+}
+```
+
+### Pipeline Syntax (more powerful)
+
+```json
+{
+  "$lookup": {
+    "from": "other_collection",
+    "let": { "local_var": "$local_field" },
+    "pipeline": [
+      { "$match": { "$expr": { "$eq": ["$foreign_field", "$$local_var"] } } }
+    ],
+    "as": "joined_results"
+  }
+}
+```
+
+### Rossum Example — Enrich Vendor Match with Addresses
+
+```json
+{
+  "aggregate": [
+    { "$match": { "vat_number": "{sender_vat}" } },
+    {
+      "$lookup": {
+        "from": "vendor_addresses",
+        "localField": "vendor_id",
+        "foreignField": "vendor_id",
+        "as": "addresses"
+      }
+    },
+    { "$unwind": "$addresses" },
+    { "$match": { "addresses.country": "{sender_country}" } }
+  ]
+}
+```
+
+---
+
+## `$unionWith` — Combine Multiple Collections
+
+Merge results from multiple datasets into a single result set.
+
+```json
+{
+  "aggregate": [
+    { "$match": { "vat_number": "{sender_vat}" } },
+    {
+      "$unionWith": {
+        "coll": "secondary_vendors",
+        "pipeline": [
+          { "$match": { "vat_number": "{sender_vat}" } }
+        ]
+      }
+    }
+  ]
+}
+```
+
+---
+
+## Atlas Search (`$search`)
+
+MongoDB Atlas Search provides full-text search with fuzzy matching, scoring, and compound queries. This is what powers fuzzy matching in the Master Data Hub.
+
+### Basic Text Search
+
+```json
+{
+  "aggregate": [
+    {
+      "$search": {
+        "text": {
+          "query": "{sender_name}",
+          "path": "Vendor Name"
+        }
+      }
+    }
+  ]
+}
+```
+
+### Fuzzy Text Search
+
+```json
+{
+  "aggregate": [
+    {
+      "$search": {
+        "text": {
+          "query": "{sender_name}",
+          "path": "Vendor Name",
+          "fuzzy": {
+            "maxEdits": 1,
+            "prefixLength": 3,
+            "maxExpansions": 50
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+**Fuzzy parameters:**
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `maxEdits` | Maximum Levenshtein edits (1 or 2) | 2 |
+| `prefixLength` | Number of leading characters that must match exactly | 0 |
+| `maxExpansions` | Maximum number of variations generated | 50 |
+
+### Compound Queries
+
+Combine multiple search criteria with boolean logic and boosting.
+
+```json
+{
+  "aggregate": [
+    {
+      "$search": {
+        "compound": {
+          "must": [
+            {
+              "text": {
+                "query": "{sender_country}",
+                "path": "country"
+              }
+            }
+          ],
+          "should": [
+            {
+              "text": {
+                "query": "{sender_name}",
+                "path": "Vendor Name",
+                "fuzzy": { "maxEdits": 1 },
+                "score": { "boost": { "value": 3 } }
+              }
+            },
+            {
+              "text": {
+                "query": "{sender_vat}",
+                "path": "vat_number",
+                "score": { "boost": { "value": 5 } }
+              }
+            }
+          ],
+          "minimumShouldMatch": 1
+        }
+      }
+    }
+  ]
+}
+```
+
+**Compound clauses:**
+
+| Clause | Description |
+|--------|-------------|
+| `must` | All conditions must match (AND). Contributes to score. |
+| `mustNot` | No conditions may match (NOT). Does not affect score. |
+| `should` | At least one should match (OR). Each match boosts score. |
+| `filter` | Must match, but does not contribute to score. |
+| `minimumShouldMatch` | Minimum number of `should` clauses that must match. |
+
+### Search with Score Extraction and Filtering
+
+```json
+{
+  "aggregate": [
+    {
+      "$search": {
+        "text": {
+          "query": "{sender_name}",
+          "path": "Vendor Name",
+          "fuzzy": { "maxEdits": 1 }
+        }
+      }
+    },
+    { "$limit": 10 },
+    {
+      "$addFields": {
+        "__searchScore": { "$meta": "searchScore" }
+      }
+    },
+    {
+      "$match": {
+        "__searchScore": { "$gt": 0.1 }
+      }
+    },
+    { "$sort": { "__searchScore": -1 } }
+  ]
+}
+```
+
+### Search Score Normalization
+
+Raw search scores are not normalized (they depend on index size, document frequency, etc.). To normalize to a 0–1 range:
+
+**Using `$setWindowFields`:**
+```json
+{
+  "aggregate": [
+    {
+      "$search": {
+        "text": {
+          "query": "{sender_name}",
+          "path": "Vendor Name",
+          "fuzzy": { "maxEdits": 1 }
+        }
+      }
+    },
+    {
+      "$addFields": {
+        "__rawScore": { "$meta": "searchScore" }
+      }
+    },
+    {
+      "$setWindowFields": {
+        "output": {
+          "__maxScore": { "$max": "$__rawScore" }
+        }
+      }
+    },
+    {
+      "$addFields": {
+        "__normalizedScore": {
+          "$cond": {
+            "if": { "$eq": ["$__maxScore", 0] },
+            "then": 0,
+            "else": { "$divide": ["$__rawScore", "$__maxScore"] }
+          }
+        }
+      }
+    },
+    {
+      "$match": { "__normalizedScore": { "$gte": 0.5 } }
+    }
+  ]
+}
+```
+
+### Other Search Operators
+
+| Operator | Description |
+|----------|-------------|
+| `text` | Full-text search with optional fuzzy matching |
+| `phrase` | Search for exact phrases with optional slop (word distance) |
+| `wildcard` | Wildcard pattern matching (`?` single char, `*` multiple) |
+| `regex` | Regular expression search against Atlas Search index |
+| `range` | Numeric or date range search |
+| `near` | Proximity-based scoring (closer values score higher) |
+| `exists` | Documents where field exists in the search index |
+| `autocomplete` | Prefix-based search for typeahead (requires autocomplete index) |
+| `equals` | Exact match on boolean, objectId, or date fields |
+| `moreLikeThis` | Find documents similar to input documents |
+| `queryString` | Lucene-style query string syntax |
+| `embeddedDocument` | Search within nested/embedded documents |
+
+---
+
+## Practical Rossum Matching Patterns
+
+### Pattern 1: Exact Vendor Match by VAT
+
+```json
+{ "find": { "vat_number": "{sender_vat}" } }
+```
+
+### Pattern 2: Case-Insensitive Vendor Name Match
+
+```json
+{ "find": { "Vendor Name": { "$regex": "^{sender_name | re}$", "$options": "i" } } }
+```
+
+### Pattern 3: Match by Multiple Identifiers (OR)
+
+Try VAT first, fall back to IBAN, then name.
+
+```json
+{
+  "find": {
+    "$or": [
+      { "vat_number": "{sender_vat}" },
+      { "iban": "{iban}" },
+      { "name": { "$regex": "^{sender_name | re}$", "$options": "i" } }
+    ]
+  }
+}
+```
+
+### Pattern 4: Purchase Order Line Item Match
+
+```json
+{
+  "find": {
+    "po_number": "{order_id}",
+    "line_number": "{item_po_line}"
+  }
+}
+```
+
+### Pattern 5: Fuzzy Vendor Name with Score Threshold
+
+```json
+{
+  "aggregate": [
+    {
+      "$search": {
+        "text": {
+          "query": "{sender_name}",
+          "path": "Vendor Name",
+          "fuzzy": {
+            "maxEdits": 1,
+            "prefixLength": 2
+          }
+        }
+      }
+    },
+    { "$limit": 5 },
+    {
+      "$addFields": {
+        "__score": { "$meta": "searchScore" }
+      }
+    },
+    {
+      "$match": { "__score": { "$gt": 0.5 } }
+    }
+  ]
+}
+```
+
+### Pattern 6: GL Code Match with Role Code
+
+```json
+{
+  "find": {
+    "role_code": { "$regex": "^{item_role | re}$", "$options": "i" }
+  }
+}
+```
+
+### Pattern 7: Compound Search — Vendor by Name + Country
+
+```json
+{
+  "aggregate": [
+    {
+      "$search": {
+        "compound": {
+          "must": [
+            {
+              "text": {
+                "query": "{sender_country}",
+                "path": "country"
+              }
+            }
+          ],
+          "should": [
+            {
+              "text": {
+                "query": "{sender_name}",
+                "path": "Vendor Name",
+                "fuzzy": { "maxEdits": 1 },
+                "score": { "boost": { "value": 3 } }
+              }
+            }
+          ]
+        }
+      }
+    },
+    { "$limit": 5 }
+  ]
+}
+```
+
+### Pattern 8: Deduplicate Results
+
+When a query returns duplicate vendor records (e.g., same vendor with multiple addresses):
+
+```json
+{
+  "aggregate": [
+    { "$match": { "vat_number": "{sender_vat}" } },
+    {
+      "$group": {
+        "_id": "$vendor_id",
+        "doc": { "$first": "$$ROOT" }
+      }
+    },
+    { "$replaceRoot": { "newRoot": "$doc" } }
+  ]
+}
+```
+
+### Pattern 9: Normalize and Match
+
+Strip non-alphanumeric characters before comparing:
+
+```json
+{
+  "aggregate": [
+    {
+      "$addFields": {
+        "__clean_vat": {
+          "$function": {
+            "body": "function(v) { return v ? v.replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : ''; }",
+            "args": ["$vat_number"],
+            "lang": "js"
+          }
+        }
+      }
+    },
+    {
+      "$match": {
+        "__clean_vat": {
+          "$regex": "^{sender_vat | re}$",
+          "$options": "i"
+        }
+      }
+    }
+  ]
+}
+```
+
+### Pattern 10: Dynamic Dataset Name
+
+The dataset key supports placeholders for multi-country/multi-entity setups:
+
+```json
+{
+  "name": "PO Match",
+  "source": {
+    "dataset": "PurchaseOrders_{queue_country}_v1",
+    "queries": [
+      { "find": { "po_number": "{order_id}" } }
+    ]
+  }
+}
+```
+
+### Pattern 11: Preferred Vendor Prioritization
+
+Sort matches to prefer flagged/preferred vendors:
+
+```json
+{
+  "aggregate": [
+    { "$match": { "vat_number": "{sender_vat}" } },
+    {
+      "$addFields": {
+        "__preferred_sort": {
+          "$cond": {
+            "if": { "$eq": ["$is_preferred", true] },
+            "then": 0,
+            "else": 1
+          }
+        }
+      }
+    },
+    { "$sort": { "__preferred_sort": 1 } }
+  ]
+}
+```
+
+### Pattern 12: Substring/Contains Match
+
+When the dataset field may contain the extracted value as a substring:
+
+```json
+{
+  "find": {
+    "description": {
+      "$regex": "{item_description | re}",
+      "$options": "i"
+    }
+  }
+}
+```
+
+### Pattern 13: Numeric Range Match
+
+Match when extracted amount falls within a range defined in the dataset:
+
+```json
+{
+  "find": {
+    "min_amount": { "$lte": { "$toDouble": "{amount_total}" } },
+    "max_amount": { "$gte": { "$toDouble": "{amount_total}" } }
+  }
+}
+```
+
+### Pattern 14: Count Records in Dataset
+
+Useful for diagnostics:
+
+```json
+{
+  "aggregate": [
+    { "$count": "total_records" }
+  ]
+}
+```
+
+---
+
+## Cross-Configuration Matching
+
+In Rossum's Master Data Hub, multiple matching configurations execute in order. Values matched by earlier configurations become available as `{schema_id}` placeholders in later ones.
+
+**Example flow:**
+1. **Config 1 — Vendor Match**: Matches vendor by VAT, fills `vendor_id` field
+2. **Config 2 — PO Match**: Uses `{vendor_id}` (now populated from Config 1) together with `{order_id}` to match purchase orders
+
+```json
+{
+  "find": {
+    "vendor_id": "{vendor_id}",
+    "po_number": "{order_id}"
+  }
+}
+```
+
+This chaining enables multi-step validation workflows where each match enriches the annotation with data used by subsequent matches.
+
+---
+
+## Result Actions
+
+After a query executes, the result count triggers different actions:
+
+| Condition | Typical Actions |
+|-----------|----------------|
+| **Zero matches** | Show error/warning, set default value, block automation |
+| **One match** | Auto-fill mapped fields, show info message |
+| **Multiple matches** | Show as enum dropdown for manual selection, show warning |
+
+Message severity levels:
+- **error** — blocks automation, requires manual review
+- **warning** — does not block automation, informational
+- **info** — non-blocking notification
+
+---
+
+## Data Type Handling
+
+### `enum_value_type`
+
+When matching produces numeric values that need to be compared as numbers (not strings), set the schema field's `enum_value_type`:
+
+```json
+{
+  "type": "enum",
+  "enum_value_type": "number",
+  "options": []
+}
+```
+
+This ensures proper type conversion when matched values are used in subsequent numeric comparisons or cross-configuration lookups.
+
+### Type Coercion in Queries
+
+- String values from annotations are the default — extracted values are strings
+- Use `$toDouble`, `$toInt`, `$toLong` in aggregation expressions for numeric comparison
+- Date comparisons require `$dateFromString` to parse date strings
+
+---
+
+## Performance Tips
+
+1. **Put `$match` first** — filters reduce the working set for subsequent stages
+2. **Use `$limit` after `$search`** — prevents processing thousands of fuzzy results
+3. **Prefer native operators over `$function`** — JavaScript execution is significantly slower
+4. **Use exact match queries first** in the query sequence — they are fastest; fall back to fuzzy/regex only when exact match fails
+5. **Use `$project` to reduce fields** — only carry forward fields you need
+6. **Avoid `$where`** — JavaScript-based filtering is the slowest query option
+7. **Use indexes** — ensure frequently queried fields are indexed in the dataset
+8. **Score thresholds** — always filter fuzzy results by score to prevent false positives
+
+---
+
+## Debugging Queries
+
+### Using the "Try" Button
+
+The Master Data Hub UI provides a "Try" button to test queries against the dataset with sample values substituted for `{schema_id}` placeholders.
+
+### Common Issues
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| No results from exact match | Case mismatch | Add `$regex` with `"$options": "i"` |
+| No results from exact match | Whitespace in data | Trim values or use regex with `\\s*` |
+| Query syntax error | Special characters in extracted value | Use `{field \| re}` pipe modifier |
+| Too many fuzzy results | Low score threshold or high `maxEdits` | Lower `maxEdits` to 1, increase `prefixLength`, add `$match` on score |
+| Wrong data type comparison | Comparing string to number | Use `$toDouble` / `$toInt` or set `enum_value_type` |
+| Cross-config value not available | Earlier config didn't match | Add default values to earlier configuration |
+| Slow query performance | `$function` or `$where` usage | Replace with native operators where possible |
