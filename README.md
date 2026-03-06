@@ -1,6 +1,6 @@
 # Rossum Claude Code Plugin
 
-A [Claude Code plugin](https://code.claude.com/docs/en/plugins) for Rossum.ai workflows. Provides skills for generating Statements of Work, analyzing customer implementations, and a comprehensive Rossum platform reference that Claude can use automatically.
+A [Claude Code plugin](https://code.claude.com/docs/en/plugins) for Rossum.ai workflows. Provides skills for generating Statements of Work, analyzing and documenting customer implementations, and a comprehensive Rossum platform reference that Claude can use automatically.
 
 ## Skills
 
@@ -11,6 +11,10 @@ Generates a Statement of Work document from project requirements. Uses Rossum te
 ### `/rossum:analyze-implementation [path]`
 
 Analyzes a locally downloaded Rossum implementation to find improvements and upsell opportunities. Reviews schemas, extensions, automation settings, master data hub config, export pipelines, and business rules. Produces a structured report with Quick Wins, Improvements, and Upsell Opportunities.
+
+### `/rossum:document-implementation [path]`
+
+Documents a locally downloaded Rossum implementation, explaining both what is configured and why each design decision was made. Produces a structured technical handoff document covering schemas, extensions, queues, master data hub, export pipeline, business rules, and a design decisions log.
 
 ### Rossum Reference (auto-loaded)
 
@@ -50,6 +54,8 @@ rossum-claude-plugin/
 │   └── plugin.json
 └── skills/
     ├── analyze-implementation/
+    │   └── SKILL.md
+    ├── document-implementation/
     │   └── SKILL.md
     ├── rossum-reference/
     │   ├── SKILL.md
